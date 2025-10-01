@@ -13,36 +13,20 @@ Platform-agnostic Python tool for deploying .bim files to SQL Server Analysis Se
 
 ## Installation
 
-### Using UV (Recommended)
-
-[UV](https://docs.astral.sh/uv/) is a fast Python package installer and resolver. Install the package with UV:
+This project uses [UV](https://docs.astral.sh/uv/) for Python package management.
 
 ```bash
-# Install with uv
-uv pip install -e .
+# Initialize the project (creates venv and installs dependencies)
+uv sync
 
-# Or create a virtual environment and install
-uv venv
+# Activate the virtual environment
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -e .
-```
-
-### Using pip
-
-```bash
-pip install -e .
-```
-
-Or install dependencies directly:
-
-```bash
-pip install -r requirements.txt
 ```
 
 ## Requirements
 
 - Python 3.10 or higher (tested with Python 3.10, 3.11, 3.12, and 3.13)
-- requests library
+- UV package manager
 
 ## Usage
 
@@ -90,11 +74,6 @@ result = deploy_bim(
 print(f"Deployed to {result['database']} on {result['server']}")
 ```
 
-## Requirements
-
-- Python 3.7+
-- requests library
-
 ## How It Works
 
 1. **Load .bim file**: Parses the JSON-based .bim file containing the tabular model definition
@@ -121,6 +100,30 @@ print(f"Deployed to {result['database']} on {result['server']}")
   - Windows Authentication or SQL Authentication can be used
   - For secure connections, use HTTPS with appropriate certificates
 
+## Configuring IIS for SSAS HTTP Access (Windows Only)
+
+For on-premises SSAS deployments on Windows, you can use the included PowerShell script to automatically configure IIS for HTTP access to SSAS:
+
+```powershell
+# Run as Administrator
+.\scripts\Configure-SSASHttpAccess.ps1 -SSASServerName "localhost"
+
+# With custom instance
+.\scripts\Configure-SSASHttpAccess.ps1 -SSASServerName "localhost\TABULAR" -IISPort 8080
+
+# With HTTPS
+.\scripts\Configure-SSASHttpAccess.ps1 -SSASServerName "localhost" -UseHTTPS -CertificateThumbprint "YOUR_CERT_THUMBPRINT"
+```
+
+This script will:
+- Install IIS and required features
+- Configure MSMDPUMP.DLL for SSAS access
+- Create application pool and virtual directory
+- Set up Windows Authentication
+- Optionally configure HTTPS
+
+For more details, see [Microsoft's documentation](https://learn.microsoft.com/en-us/analysis-services/instances/configure-http-access-to-analysis-services-on-iis-8-0).
+
 ## Error Handling
 
 The tool includes comprehensive error handling for:
@@ -133,28 +136,12 @@ The tool includes comprehensive error handling for:
 
 ### Setting Up Development Environment
 
-Using UV (recommended):
-
 ```bash
-# Create a virtual environment
-uv venv
+# Initialize the project with UV
+uv sync
 
 # Activate the virtual environment
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install the package in development mode
-uv pip install -e .
-```
-
-Using pip:
-
-```bash
-# Create a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install in development mode
-pip install -e .
 ```
 
 ### Running Tests
@@ -165,16 +152,8 @@ python -m unittest discover -s tests -v
 
 ### Building the Package
 
-Using UV:
-
 ```bash
 uv build
-```
-
-Using traditional tools:
-
-```bash
-python -m build
 ```
 
 ## License

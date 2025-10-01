@@ -86,16 +86,9 @@ pyssas-deploy deploy model.bim powerbi://api.powerbi.com/v1.0/myorg/MyWorkspace 
 
 ## Installation
 
-Using UV (recommended):
-
 ```bash
-uv pip install -e .
-```
-
-Using pip:
-
-```bash
-pip install -e .
+# Initialize the project with UV
+uv sync
 ```
 
 ## SSAS Version Compatibility
