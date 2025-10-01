@@ -81,14 +81,41 @@ pyssas-deploy deploy model.bim powerbi://api.powerbi.com/v1.0/myorg/MyWorkspace 
 
 ## Dependencies
 
-- **Python**: 3.7+
+- **Python**: 3.10+ (tested with 3.10, 3.11, 3.12, and 3.13)
 - **requests**: For HTTP/HTTPS communication with SSAS servers
 
 ## Installation
 
+Using UV (recommended):
+
+```bash
+uv pip install -e .
+```
+
+Using pip:
+
 ```bash
 pip install -e .
 ```
+
+## SSAS Version Compatibility
+
+This tool supports the following SSAS versions:
+
+### On-Premises Deployments
+- **SSAS 2017** (Compatibility Level 1400+)
+- **SSAS 2019** (Compatibility Level 1400+)
+- **SSAS 2022** (Compatibility Level 1400+)
+
+### Technical Requirements
+- TMSL (Tabular Model Scripting Language) support required
+- XMLA endpoint must be accessible (default port 2383)
+- Tabular model compatibility level 1400 or higher
+- Windows Authentication or SQL Authentication supported
+
+### Cloud Deployments
+- Azure Analysis Services (all tiers)
+- Power BI Premium (via XMLA endpoints)
 
 ## Future Enhancements (Optional)
 

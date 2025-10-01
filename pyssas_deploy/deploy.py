@@ -81,14 +81,17 @@ def deploy_bim(
     """
     Deploy a .bim file to an SSAS server.
     
+    Supports SSAS 2017-2022 (on-premises) and Azure Analysis Services.
+    Requires tabular model compatibility level 1400 or higher.
+    
     Args:
         bim_path: Path to the .bim file
-        server: SSAS server address
+        server: SSAS server address (e.g., 'sqlserver.contoso.com' or 'sqlserver\\TABULAR')
         database_name: Name for the deployed database
-        username: Optional username for authentication
+        username: Optional username for authentication (Windows or SQL Auth)
         password: Optional password for authentication
         overwrite: Whether to overwrite existing database (default: True)
-        port: Server port (default: 2383 for Azure AS)
+        port: Server port (default: 2383 for XMLA endpoint)
         use_https: Whether to use HTTPS (default: False)
         
     Returns:
@@ -96,6 +99,15 @@ def deploy_bim(
         
     Raises:
         SSASDeploymentError: If deployment fails
+        
+    Examples:
+        On-premises SSAS 2017-2022:
+            deploy_bim('model.bim', 'sqlserver.contoso.com', 'MyDB', 
+                      username='domain\\user', password='pass')
+        
+        Azure Analysis Services:
+            deploy_bim('model.bim', 'asazure://region.asazure.windows.net/server',
+                      'MyDB', use_https=True)
     """
     logger.info(f"Starting deployment of {bim_path} to {server}/{database_name}")
     
