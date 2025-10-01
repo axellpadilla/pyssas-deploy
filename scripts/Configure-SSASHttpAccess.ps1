@@ -59,6 +59,7 @@ param(
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Error "This script must be run as Administrator. Please restart PowerShell with elevated privileges."
+    Read-Host "Press Enter to exit"
     exit 1
 }
 
