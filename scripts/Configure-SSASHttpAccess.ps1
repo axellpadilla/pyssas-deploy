@@ -255,8 +255,8 @@ if ($UseHTTPS) {
         Write-Warning "Certificate thumbprint not provided. Skipping HTTPS configuration."
     } else {
         try {
-            # Get certificate
-            $cert = Get-ChildItem -Path "Cert:\LocalMachine\My\$CertificateThumbprint" -ErrorAction Stop
+            # Verify certificate exists (will throw error if not found)
+            Get-ChildItem -Path "Cert:\LocalMachine\My\$CertificateThumbprint" -ErrorAction Stop | Out-Null
             
             # Create HTTPS binding
             $binding = Get-WebBinding -Name "Default Web Site" -Protocol "https" -Port $IISPort -ErrorAction SilentlyContinue
