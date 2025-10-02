@@ -167,11 +167,10 @@ try {
         Write-Host "  Copied MSMDPUMP files to $physicalPath" -ForegroundColor Gray
     }
     
-    # Create virtual directory
-    New-Item $vdirPath -Type VirtualDirectory -PhysicalPath $physicalPath -Force | Out-Null
-    Set-ItemProperty $vdirPath -Name "applicationPool" -Value $appPoolName
+    # Create application (not just virtual directory) to assign app pool
+    New-WebApplication -Name $vdirName -Site "Default Web Site" -PhysicalPath $physicalPath -ApplicationPool $appPoolName -Force | Out-Null
     
-    Write-Host "  Virtual directory created at: http://localhost/$vdirName" -ForegroundColor Green
+    Write-Host "  Web application created at: http://localhost/$vdirName" -ForegroundColor Green
 } catch {
     Write-Error "Failed to create virtual directory: $_"
     exit 1
@@ -206,8 +205,9 @@ RequestTimeout=300000
 # Step 6: Configure Handler Mappings
 Write-Host "[6/7] Configuring ISAPI handler mappings..." -ForegroundColor Green
 try {
-    # Enable ISAPI-dll handler if not already enabled
-    $config = Get-WebConfiguration -Filter "system.webServer/handlers" -PSPath "IIS:\Sites\Default Web Site\$vdirName"
+    # Unlock handlers section to allow configuration at application level
+    Write-Host "  Unlocking handlers section..." -ForegroundColor Gray
+    & $env:windir\system32\inetsrv\appcmd.exe unlock config -section:system.webServer/handlers
     
     # Add MSMDPUMP.DLL handler
     if ($msmdpumpFound) {
@@ -220,7 +220,6 @@ try {
             -Modules "IsapiModule" `
             -ScriptProcessor $msmdpumpFound.FullName `
             -ResourceType "Unspecified" `
-            -RequireAccess "Execute" `
             -PSPath "IIS:\Sites\Default Web Site\$vdirName" `
             -ErrorAction Stop
         
@@ -234,6 +233,11 @@ try {
 # Step 7: Configure Authentication
 Write-Host "[7/7] Configuring authentication..." -ForegroundColor Green
 try {
+    # Unlock authentication sections to allow configuration at application level
+    Write-Host "  Unlocking authentication sections..." -ForegroundColor Gray
+    & $env:windir\system32\inetsrv\appcmd.exe unlock config -section:system.webServer/security/authentication/anonymousAuthentication
+    & $env:windir\system32\inetsrv\appcmd.exe unlock config -section:system.webServer/security/authentication/windowsAuthentication
+    
     # Disable anonymous authentication
     Set-WebConfigurationProperty -Filter "/system.webServer/security/authentication/anonymousAuthentication" `
         -Name "enabled" -Value "False" -PSPath "IIS:\Sites\Default Web Site\$vdirName"
