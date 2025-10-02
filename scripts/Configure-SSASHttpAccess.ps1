@@ -70,6 +70,81 @@ Write-Host "IIS Port: $IISPort" -ForegroundColor Yellow
 Write-Host "Use HTTPS: $UseHTTPS" -ForegroundColor Yellow
 Write-Host ""
 
+# Pre-flight checks
+Write-Host "[Pre-flight] Running validation checks..." -ForegroundColor Green
+
+# Check 1: Verify SSAS service is running
+Write-Host "  Checking SSAS service status..." -ForegroundColor Gray
+$ssasServices = Get-Service -Name "MSOLAP*" -ErrorAction SilentlyContinue
+if ($ssasServices) {
+    $runningServices = $ssasServices | Where-Object { $_.Status -eq "Running" }
+    if ($runningServices) {
+        foreach ($service in $runningServices) {
+            Write-Host "  [OK] SSAS service '$($service.DisplayName)' is running" -ForegroundColor Green
+        }
+    } else {
+        Write-Warning "SSAS service(s) found but not running:"
+        foreach ($service in $ssasServices) {
+            Write-Warning "  - $($service.DisplayName): $($service.Status)"
+        }
+        $continue = Read-Host "Do you want to continue anyway? (y/N)"
+        if ($continue -ne "y" -and $continue -ne "Y") {
+            Write-Host "Configuration cancelled by user." -ForegroundColor Yellow
+            exit 0
+        }
+    }
+} else {
+    Write-Warning "No SSAS services found on this machine."
+    $continue = Read-Host "Do you want to continue anyway? (y/N)"
+    if ($continue -ne "y" -and $continue -ne "Y") {
+        Write-Host "Configuration cancelled by user." -ForegroundColor Yellow
+        exit 0
+    }
+}
+
+# Check 2: Verify SSAS port availability
+Write-Host "  Checking SSAS port $SSASPort..." -ForegroundColor Gray
+$ssasPortInUse = Get-NetTCPConnection -LocalPort $SSASPort -State Listen -ErrorAction SilentlyContinue
+if ($ssasPortInUse) {
+    $processId = $ssasPortInUse[0].OwningProcess
+    $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+    Write-Host "  [OK] Port $SSASPort is in use by: $($process.ProcessName) (PID: $processId)" -ForegroundColor Green
+} else {
+    Write-Warning "Port $SSASPort is not in use. SSAS may not be listening on this port."
+    Write-Warning "  Common SSAS ports: 2383 (default), 2382, or dynamic port"
+    $continue = Read-Host "Do you want to continue anyway? (y/N)"
+    if ($continue -ne "y" -and $continue -ne "Y") {
+        Write-Host "Configuration cancelled by user." -ForegroundColor Yellow
+        exit 0
+    }
+}
+
+# Check 3: Verify IIS port availability
+Write-Host "  Checking IIS port $IISPort..." -ForegroundColor Gray
+$iisPortInUse = Get-NetTCPConnection -LocalPort $IISPort -State Listen -ErrorAction SilentlyContinue
+if ($iisPortInUse) {
+    $processId = $iisPortInUse[0].OwningProcess
+    $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+    Write-Warning "Port $IISPort is already in use by: $($process.ProcessName) (PID: $processId)"
+    
+    # Check if it's IIS
+    if ($process.ProcessName -like "*w3wp*" -or $process.ProcessName -eq "inetinfo") {
+        Write-Host "  [INFO] Port is used by IIS - configuration will update existing binding" -ForegroundColor Cyan
+    } else {
+        Write-Warning "  Port is used by a non-IIS process. This may cause conflicts."
+        $continue = Read-Host "Do you want to continue anyway? (y/N)"
+        if ($continue -ne "y" -and $continue -ne "Y") {
+            Write-Host "Configuration cancelled by user." -ForegroundColor Yellow
+            exit 0
+        }
+    }
+} else {
+    Write-Host "  [OK] Port $IISPort is available" -ForegroundColor Green
+}
+
+Write-Host "  Pre-flight checks complete!" -ForegroundColor Green
+Write-Host ""
+
 # Step 1: Install IIS and required features
 Write-Host "[1/7] Installing IIS and required features..." -ForegroundColor Green
 try {
@@ -281,6 +356,135 @@ if ($UseHTTPS) {
         }
     }
 }
+
+# Post-validation checks
+Write-Host ""
+Write-Host "[Post-validation] Verifying configuration..." -ForegroundColor Green
+
+# Check 1: Verify Application Pool is running
+Write-Host "  Checking application pool status..." -ForegroundColor Gray
+try {
+    $appPool = Get-Item "IIS:\AppPools\$appPoolName" -ErrorAction Stop
+    $appPoolState = $appPool.State
+    
+    if ($appPoolState -eq "Started") {
+        Write-Host "  [OK] Application pool '$appPoolName' is running" -ForegroundColor Green
+    } else {
+        Write-Warning "Application pool '$appPoolName' state: $appPoolState"
+        Write-Host "  Attempting to start application pool..." -ForegroundColor Gray
+        Start-WebAppPool -Name $appPoolName -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        $appPool = Get-Item "IIS:\AppPools\$appPoolName"
+        if ($appPool.State -eq "Started") {
+            Write-Host "  [OK] Application pool started successfully" -ForegroundColor Green
+        } else {
+            Write-Warning "Failed to start application pool. Check Event Viewer for details."
+        }
+    }
+} catch {
+    Write-Warning "Could not verify application pool status: $_"
+}
+
+# Check 2: Verify Web Application exists
+Write-Host "  Checking web application..." -ForegroundColor Gray
+try {
+    $webApp = Get-WebApplication -Name $vdirName -Site "Default Web Site" -ErrorAction Stop
+    if ($webApp) {
+        Write-Host "  [OK] Web application '$vdirName' exists" -ForegroundColor Green
+        Write-Host "    Physical path: $($webApp.PhysicalPath)" -ForegroundColor Gray
+        Write-Host "    Application pool: $($webApp.ApplicationPool)" -ForegroundColor Gray
+    }
+} catch {
+    Write-Warning "Could not verify web application: $_"
+}
+
+# Check 3: Verify MSMDPUMP.dll is accessible
+Write-Host "  Checking MSMDPUMP.dll..." -ForegroundColor Gray
+$msmdpumpDll = Join-Path $physicalPath "MSMDPUMP.dll"
+if (Test-Path $msmdpumpDll) {
+    Write-Host "  [OK] MSMDPUMP.dll exists at: $msmdpumpDll" -ForegroundColor Green
+} else {
+    Write-Warning "MSMDPUMP.dll not found at: $msmdpumpDll"
+}
+
+# Check 4: Verify MSMDPUMP.INI exists and contains correct server
+Write-Host "  Checking MSMDPUMP.INI..." -ForegroundColor Gray
+$iniPath = "$physicalPath\MSMDPUMP.INI"
+if (Test-Path $iniPath) {
+    $iniContent = Get-Content $iniPath -Raw
+    if ($iniContent -match "ServerName\s*=\s*$([regex]::Escape($SSASServerName))") {
+        Write-Host "  [OK] MSMDPUMP.INI configured for server: $SSASServerName" -ForegroundColor Green
+    } else {
+        Write-Warning "MSMDPUMP.INI exists but may not be configured correctly"
+    }
+} else {
+    Write-Warning "MSMDPUMP.INI not found at: $iniPath"
+}
+
+# Check 5: Verify ISAPI handler is registered
+Write-Host "  Checking ISAPI handler mapping..." -ForegroundColor Gray
+try {
+    $handlers = Get-WebHandler -PSPath "IIS:\Sites\Default Web Site\$vdirName" -ErrorAction Stop
+    $msmdpumpHandler = $handlers | Where-Object { $_.Name -eq "MSMDPUMP" }
+    if ($msmdpumpHandler) {
+        Write-Host "  [OK] MSMDPUMP handler registered" -ForegroundColor Green
+        Write-Host "    Path: $($msmdpumpHandler.Path)" -ForegroundColor Gray
+        Write-Host "    Script processor: $($msmdpumpHandler.ScriptProcessor)" -ForegroundColor Gray
+    } else {
+        Write-Warning "MSMDPUMP handler not found in handler mappings"
+    }
+} catch {
+    Write-Warning "Could not verify handler mappings: $_"
+}
+
+# Check 6: Verify authentication settings
+Write-Host "  Checking authentication settings..." -ForegroundColor Gray
+try {
+    $anonAuth = Get-WebConfigurationProperty -Filter "/system.webServer/security/authentication/anonymousAuthentication" `
+        -Name "enabled" -PSPath "IIS:\Sites\Default Web Site\$vdirName" -ErrorAction Stop
+    $winAuth = Get-WebConfigurationProperty -Filter "/system.webServer/security/authentication/windowsAuthentication" `
+        -Name "enabled" -PSPath "IIS:\Sites\Default Web Site\$vdirName" -ErrorAction Stop
+    
+    if ($anonAuth.Value -eq $false -and $winAuth.Value -eq $true) {
+        Write-Host "  [OK] Authentication configured correctly" -ForegroundColor Green
+        Write-Host "    Anonymous: Disabled" -ForegroundColor Gray
+        Write-Host "    Windows: Enabled" -ForegroundColor Gray
+    } else {
+        Write-Warning "Authentication settings may not be correct:"
+        Write-Warning "  Anonymous: $($anonAuth.Value) (should be False)"
+        Write-Warning "  Windows: $($winAuth.Value) (should be True)"
+    }
+} catch {
+    Write-Warning "Could not verify authentication settings: $_"
+}
+
+# Check 7: Test HTTP endpoint accessibility
+Write-Host "  Testing HTTP endpoint..." -ForegroundColor Gray
+try {
+    $protocol = if ($UseHTTPS -and $CertificateThumbprint) { "https" } else { "http" }
+    $testUrl = "${protocol}://localhost:$IISPort/$vdirName/msmdpump.dll"
+    
+    # Simple connectivity test (will return 401 without credentials, which is expected)
+    $response = Invoke-WebRequest -Uri $testUrl -Method GET -UseBasicParsing -UseDefaultCredentials -ErrorAction SilentlyContinue
+    
+    if ($response.StatusCode -eq 200) {
+        Write-Host "  [OK] Endpoint is accessible: $testUrl" -ForegroundColor Green
+    }
+} catch {
+    $statusCode = $_.Exception.Response.StatusCode.Value__
+    if ($statusCode -eq 401) {
+        Write-Host "  [OK] Endpoint is accessible (401 Unauthorized - credentials required)" -ForegroundColor Green
+    } elseif ($statusCode -eq 403) {
+        Write-Host "  [WARN] Endpoint accessible but returns 403 Forbidden" -ForegroundColor Yellow
+        Write-Host "    This may be normal - verify permissions are configured" -ForegroundColor Gray
+    } else {
+        Write-Warning "Could not access endpoint: HTTP $statusCode"
+        Write-Warning "  URL tested: $testUrl"
+    }
+}
+
+Write-Host "  Post-validation complete!" -ForegroundColor Green
+Write-Host ""
 
 # Summary
 Write-Host ""
